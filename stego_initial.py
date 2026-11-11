@@ -10,7 +10,6 @@ Key trick (so the receiver can extract without extra info):
   The "texture map" is computed from the image with its 2 lowest bit-planes
   cleared. Embedding only touches those 2 bit-planes, so the map is identical
   before and after embedding -> decoder rebuilds the same map.
-
 """
 
 import os, glob, csv
@@ -20,11 +19,13 @@ import matplotlib.pyplot as plt
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from skimage.metrics import structural_similarity as ssim
 
+# ------------------------- 1. SETTINGS (edit these) -------------------------
 IMAGE_DIR     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")  # folder next to this script
 NUM_IMAGES    = 10            # how many images to test
 IMG_SIZE      = (256, 256)    # resize for quick testing (None = keep original)
-PAYLOAD_RATIO = 0.5           # use 50% of each image's adaptive capacity
+PAYLOAD_RATIO = 1.0         # use 100% of each image's adaptive capacity
 OUT_DIR       = "results"
+SHOW_DEMO     = "random"      # which image's demo to open: an index (0-9), "random", or "all"
 np.random.seed(42)            # reproducible random payloads
 
 # Bits hidden per colour channel for each texture level. Order = (B, G, R) (OpenCV).
@@ -187,21 +188,33 @@ def main():
     for a in ax: a.set_xlabel("Image index"); a.set_xticks(x)
     plt.tight_layout(); plt.savefig(os.path.join(OUT_DIR, "metrics_comparison.png"), dpi=150)
 
-    # ---- visual demo on first image: where did each method change pixels? ----
-    img = images[0]
-    _, slot_idx, level = build_slots(img)
-    n_bits = int(len(slot_idx) * PAYLOAD_RATIO)
-    payload = np.random.randint(0, 2, n_bits)
-    d_lsb = np.abs(img.astype(int) - lsb_embed(img, payload)).sum(2) * 60       # amplified
-    d_adp = np.abs(img.astype(int) - adaptive_embed(img, payload)).sum(2) * 60
-    fig, ax = plt.subplots(1, 4, figsize=(16, 4))
-    ax[0].imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)); ax[0].set_title("Cover")
-    ax[1].imshow(level, cmap="gray"); ax[1].set_title("Texture level map (0-2)")
-    ax[2].imshow(np.clip(d_lsb, 0, 255), cmap="hot"); ax[2].set_title("LSB changes (x60)")
-    ax[3].imshow(np.clip(d_adp, 0, 255), cmap="hot"); ax[3].set_title("Adaptive changes (x60)")
-    for a in ax: a.axis("off")
-    plt.tight_layout(); plt.savefig(os.path.join(OUT_DIR, "visual_demo.png"), dpi=150)
-    print(f"\nSaved CSV + plots in '{OUT_DIR}/'")
+    # ---- visual demo: where did each method change pixels? (one picture per image) ----
+    figs = []
+    for idx, (img, name) in enumerate(zip(images, names)):
+        _, slot_idx, level = build_slots(img)
+        n_bits = int(len(slot_idx) * PAYLOAD_RATIO)
+        payload = np.random.randint(0, 2, n_bits)
+        d_lsb = np.abs(img.astype(int) - lsb_embed(img, payload)).sum(2) * 60       # amplified
+        d_adp = np.abs(img.astype(int) - adaptive_embed(img, payload)).sum(2) * 60
+        fig, ax = plt.subplots(1, 4, figsize=(16, 4))
+        ax[0].imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)); ax[0].set_title(f"Cover: {name}")
+        ax[1].imshow(level, cmap="gray"); ax[1].set_title("Texture level map (0-2)")
+        ax[2].imshow(np.clip(d_lsb, 0, 255), cmap="hot"); ax[2].set_title("LSB changes (x60)")
+        ax[3].imshow(np.clip(d_adp, 0, 255), cmap="hot"); ax[3].set_title("Adaptive changes (x60)")
+        for a in ax: a.axis("off")
+        plt.tight_layout()
+        plt.savefig(os.path.join(OUT_DIR, f"visual_{idx}_{os.path.splitext(name)[0]}.png"), dpi=150)
+        figs.append(fig)
+
+    print(f"\nSaved CSV + plots in '{OUT_DIR}/' (one visual_*.png per image)")
+
+    # ---- which demo figure(s) to open on screen ----
+    if SHOW_DEMO == "all":
+        pass                                              # leave every figure open
+    else:
+        keep = SHOW_DEMO if SHOW_DEMO != "random" else int(np.random.randint(len(figs)))
+        for i, f in enumerate(figs):
+            if i != keep: plt.close(f)                    # close the rest, show only one
     plt.show()
 
 if __name__ == "__main__":
